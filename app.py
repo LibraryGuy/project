@@ -4,8 +4,8 @@ import requests
 import google.generativeai as genai
 
 # --- CONFIGURATION ---
-CONGRESS_API_KEY = "yFetrbibxRXTZbv9LWZ5Mc5jc7l9jwauH0I1l6QH" 
-GEMINI_API_KEY = "AIzaSyCiHg3JbZ7EPY4Ds7tioegGJ6_lOPRVdz0"
+CONGRESS_API_KEY = st.secrets["yFetrbibxRXTZbv9LWZ5Mc5jc7l9jwauH0I1l6QH"] 
+GEMINI_API_KEY = st.secrets["AIzaSyCiHg3JbZ7EPY4Ds7tioegGJ6_lOPRVdz0"]
 CONGRESS = "119"
 BASE_URL = "https://api.congress.gov/v3"
 
