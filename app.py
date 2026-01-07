@@ -3,14 +3,21 @@ import pandas as pd
 import requests
 import google.generativeai as genai
 
-# --- CONFIGURATION ---
-CONGRESS_API_KEY = st.secrets["yFetrbibxRXTZbv9LWZ5Mc5jc7l9jwauH0I1l6QH"] 
-GEMINI_API_KEY = st.secrets["AIzaSyCiHg3JbZ7EPY4Ds7tioegGJ6_lOPRVdz0"]
+# --- CONFIGURATION (Streamlit Secrets) ---
+# These names must match EXACTLY what you typed on the left side in Streamlit Cloud
+try:
+    CONGRESS_API_KEY = st.secrets["CONGRESS_API_KEY"]
+    GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
+except KeyError as e:
+    st.error(f"Missing Secret Key: {e}. Please check your Streamlit Cloud Advanced Settings.")
+    st.stop()
+
 CONGRESS = "119"
 BASE_URL = "https://api.congress.gov/v3"
 
-# Setup Gemini
+# Setup Gemini AI
 genai.configure(api_key=GEMINI_API_KEY)
+# Using 'gemini-1.5-flash' as it is currently the most stable for this use case
 model = genai.GenerativeModel('gemini-1.5-flash')
 
 st.set_page_config(page_title="2026 Policy Tracker", layout="wide")
@@ -43,25 +50,16 @@ def fetch_executive_orders():
     return resp.json().get('results', []) if resp.status_code == 200 else []
 
 # --- AI SUMMARIZER ---
-# Updated Model Initialization
-# Try 'gemini-1.5-flash-latest' which usually resolves 404 versioning errors
-model = genai.GenerativeModel('gemini-2.5-flash')
 def ai_explain(text, title):
     if not text or "pending" in text:
         return "I can't summarize this yet because the official text hasn't been provided by Congress."
-
-    # Added a slightly more detailed prompt for better 2026-era results
-    prompt = (
-        f"You are a policy expert. Explain the following legislation in three clear, "
-        f"non-partisan bullet points. Title: {title}. Text: {text}"
-    )
     
+    prompt = f"Explain this law/order in 3 simple bullet points for a high school student. Title: {title}. Text: {text}"
     try:
         response = model.generate_content(prompt)
         return response.text
     except Exception as e:
-        # If gemini-1.5-flash-latest still fails, let's try a fallback
-        return f"AI Connection Error: {e}. Tip: Check if your API key has 'Generative AI' permissions enabled in AI Studio."
+        return f"AI Connection Error: {e}"
 
 # --- UI ---
 st.title("🏛️ 2026 Legislative & Executive Tracker")
@@ -71,10 +69,15 @@ with tab1:
     df = pd.DataFrame(fetch_recent_bills())
     if not df.empty:
         df['status'] = df['latestAction'].apply(lambda x: x.get('text') if x else "N/A")
-        selection = st.dataframe(df[['number', 'title', 'status']], use_container_width=True, 
-                                 on_select="rerun", selection_mode="single-row", hide_index=True)
+        # selection_mode is for Streamlit 1.35+
+        selection = st.dataframe(df[['number', 'title', 'status']], 
+                                 use_container_width=True, 
+                                 on_select="rerun", 
+                                 selection_mode="single-row", 
+                                 hide_index=True)
 
 with tab2:
+    st.subheader("Latest Presidential Directives")
     orders = fetch_executive_orders()
     for eo in orders:
         with st.expander(f"{eo.get('title')}"):
@@ -85,16 +88,20 @@ with tab2:
             st.link_button("Official Document", eo.get('html_url'))
 
 with tab3:
+    # Logic to handle bill selection from Tab 1
     if 'selection' in locals() and len(selection.selection.rows) > 0:
-        row = df.iloc[selection.selection.rows[0]]
-        with st.spinner("AI is reading the law..."):
-            extra = get_on_demand_details(row['type'].lower(), row['number'])
-            summary_ai = ai_explain(extra['summary'], row['title'])
+        row_idx = selection.selection.rows[0]
+        bill_row = df.iloc[row_idx]
         
-        st.header(row['title'])
-        st.subheader("🤖 AI Explanation")
+        with st.spinner("AI is reading the law..."):
+            extra = get_on_demand_details(bill_row['type'].lower(), bill_row['number'])
+            summary_ai = ai_explain(extra['summary'], bill_row['title'])
+        
+        st.header(bill_row['title'])
+        st.subheader("🤖 AI 'Plain English' Explanation")
         st.success(summary_ai)
+        
         st.subheader("Official Summary")
         st.write(extra['summary'])
     else:
-        st.info("Select a bill in the first tab to see the AI breakdown here.")
+        st.info("Select a bill in the 'Proposed Laws' tab to see the AI breakdown here.")
