@@ -113,6 +113,40 @@ with tab1:
             hide_index=True,
             key="main_table"
         )
+with tab2:
+    st.subheader("🖋️ Recent Executive Orders")
+    orders = fetch_executive_orders()
+    
+    if not orders:
+        st.info("No recent Executive Orders found.")
+    else:
+        for eo in orders:
+            # Create a clean title with the document number if available
+            title = eo.get('title', 'Untitled Order')
+            doc_no = eo.get('document_number', '')
+            
+            with st.expander(f"📄 {title}"):
+                col_a, col_b = st.columns([3, 1])
+                
+                with col_a:
+                    st.markdown("**Abstract:**")
+                    # Display the abstract or a fallback message
+                    abstract = eo.get('abstract', "No abstract available for this document.")
+                    st.write(abstract)
+                    
+                    st.caption(f"Published Date: {eo.get('publication_date')} | Document #{doc_no}")
+                
+                with col_b:
+                    st.markdown("**Official Links:**")
+                    st.link_button("🌐 View on Federal Register", eo.get('html_url'), use_container_width=True)
+                    if eo.get('pdf_url'):
+                        st.link_button("📂 Download Official PDF", eo.get('pdf_url'), use_container_width=True)
+                
+                # Logic: Add a quick AI summary button for the EO
+                if st.button(f"Analyze Impact of {doc_no}", key=f"btn_{doc_no}"):
+                    with st.spinner("AI is analyzing the order..."):
+                        analysis = ai_analyze_policy(abstract, title, "impact")
+                        st.success(analysis)
 
 with tab3:
     # INTELLIGENCE DEEP DIVE
