@@ -115,24 +115,45 @@ with st.container():
 
 tab1, tab2, tab3, tab4 = st.tabs(["📜 Legislation", "🖋️ Executive Actions", "⚖️ Supreme Court", "🔬 Intelligence Deep Dive"])
 
+# --- 4. UI ENHANCEMENTS ---
+
+st.title("🏛️ 2026 Intel Policy Tracker")
+st.caption(f"Real-time Legislative Intelligence • {datetime.now().strftime('%B %d, %2026')}")
+
+# Top Row: Automated News Alerts (Remains at the top)
+with st.container():
+    st.subheader("🔔 Automated Policy Alerts")
+    orders = fetch_eo_news()
+    if orders:
+        cols = st.columns(len(orders))
+        for i, eo in enumerate(orders):
+            with cols[i]:
+                st.info(f"**EO:** {eo.get('title')[:45]}...")
+                st.caption(f"📅 {eo.get('publication_date')}")
+
+# Update the Tab structure: 4 Tabs now
+tab1, tab2, tab3, tab4 = st.tabs([
+    "📜 Legislation", 
+    "🖋️ Executive Actions", 
+    "⚖️ Supreme Court", 
+    "🔬 Intelligence Deep Dive"
+])
+
+# --- TAB 1: LEGISLATION ---
 with tab1:
-    # SEARCH & FILTER ENGINE
     col1, col2 = st.columns([2,1])
     with col1:
-        query = st.text_input("🔍 Semantic Search (e.g., 'energy subsidies', 'crypto regulation')", key="search_bar")
-    with col2:
-        status_filter = st.multiselect("Filter Status", ["Introduced", "Passed House", "Became Law"])
-
+        query = st.text_input("🔍 Search Legislation", key="leg_search")
+    
     raw_bills = fetch_data(f"bill/{CONGRESS_SESSION}")
     if raw_bills:
         df = pd.DataFrame(raw_bills.get('bills', []))
         df['status'] = df['latestAction'].apply(lambda x: x.get('text', 'N/A'))
-        
-        # LOGIC: Basic Semantic/Keyword Filtering
         if query:
             df = df[df['title'].str.contains(query, case=False)]
-            
+        
         st.session_state.bills_df = df
+        # We catch the selection here to use in Tab 4
         selection = st.dataframe(
             df[['number', 'title', 'status']], 
             use_container_width=True, 
@@ -141,96 +162,60 @@ with tab1:
             hide_index=True,
             key="main_table"
         )
-with tab2:
-    st.subheader("🖋️ Recent Executive Orders")
-    orders = fetch_executive_orders()
-    
-    if not orders:
-        st.info("No recent Executive Orders found.")
-    else:
-        for eo in orders:
-            # Create a clean title with the document number if available
-            title = eo.get('title', 'Untitled Order')
-            doc_no = eo.get('document_number', '')
-            
-            with st.expander(f"📄 {title}"):
-                col_a, col_b = st.columns([3, 1])
-                
-                with col_a:
-                    st.markdown("**Abstract:**")
-                    # Display the abstract or a fallback message
-                    abstract = eo.get('abstract', "No abstract available for this document.")
-                    st.write(abstract)
-                    
-                    st.caption(f"Published Date: {eo.get('publication_date')} | Document #{doc_no}")
-                
-                with col_b:
-                    st.markdown("**Official Links:**")
-                    st.link_button("🌐 View on Federal Register", eo.get('html_url'), use_container_width=True)
-                    if eo.get('pdf_url'):
-                        st.link_button("📂 Download Official PDF", eo.get('pdf_url'), use_container_width=True)
-                
-                # Logic: Add a quick AI summary button for the EO
-                if st.button(f"Analyze Impact of {doc_no}", key=f"btn_{doc_no}"):
-                    with st.spinner("AI is analyzing the order..."):
-                        analysis = ai_analyze_policy(abstract, title, "impact")
-                        st.success(analysis)
 
+# --- TAB 2: EXECUTIVE ACTIONS ---
+with tab2:
+    st.subheader("🖋️ Executive Orders library")
+    eo_list = fetch_executive_orders() # Ensure this function is defined in Section 2
+    if eo_list:
+        for eo in eo_list:
+            with st.expander(f"📄 {eo.get('title')}"):
+                st.write(eo.get('abstract', 'No abstract available.'))
+                st.link_button("View Official Document", eo.get('html_url'))
+
+# --- TAB 3: SUPREME COURT (New Location) ---
 with tab3:
-    # INTELLIGENCE DEEP DIVE
+    st.subheader("⚖️ Supreme Court Docket (2025-2026 Term)")
+    scotus_cases = fetch_scotus_cases() # Ensure this function is defined in Section 2
+    
+    if scotus_cases:
+        for case in scotus_cases:
+            name = case.get('name', 'Unknown Case')
+            docket = case.get('docket_number', 'N/A')
+            # Facts are stored in 'description' in the summary API
+            facts = case.get('description', 'Legal summary not yet provided.')
+            
+            with st.expander(f"⚖️ {name} [{docket}]"):
+                st.markdown("**Facts of the Case:**")
+                st.write(facts)
+                
+                # Dynamic link to Oyez website
+                term_year = case.get('term', '2025')
+                st.link_button("Read Full Legal Breakdown", f"https://www.oyez.org/cases/{term_year}/{docket}")
+                
+                if st.button(f"AI Legal Analysis: {docket}", key=f"sc_btn_{docket}"):
+                    with st.spinner("AI is weighing the precedent..."):
+                        sc_prompt = f"Explain this SCOTUS case to a non-lawyer. What is the constitutional question? Case: {name}. Facts: {facts}"
+                        st.info(model.generate_content(sc_prompt).text)
+
+# --- TAB 4: INTELLIGENCE DEEP DIVE ---
+with tab4:
+    # Check if anything was selected in Tab 1
     if selection and selection.get("selection") and selection["selection"]["rows"]:
         idx = selection["selection"]["rows"][0]
         selected_bill = st.session_state.bills_df.iloc[idx]
         
         st.header(selected_bill['title'])
-        
-        # Structure Improvement: Metrics Row
-        m1, m2, m3 = st.columns(3)
+        m1, m2 = st.columns(2)
         m1.metric("Bill #", selected_bill['number'])
-        m2.metric("Last Action", "Jan 2026")
-        m3.metric("Sentiment", "Analyzing...")
+        m2.metric("Latest Status", "Active" if "Introduced" not in selected_bill['status'] else "Introduced")
 
-        # Multi-Analysis Sections
         c1, c2 = st.columns(2)
         with c1:
-            st.subheader("💰 Economic Impact (Winners/Losers)")
-            with st.spinner("Calculating impact..."):
-                st.markdown(ai_analyze_policy(selected_bill['title'], selected_bill['title'], "impact"))
-        
+            st.subheader("💰 Economic Impact")
+            st.markdown(ai_analyze_policy(selected_bill['title'], selected_bill['title'], "impact"))
         with c2:
             st.subheader("⚖️ Partisan Sentiment")
-            with st.spinner("Analyzing political lean..."):
-                st.markdown(ai_analyze_policy(selected_bill['title'], selected_bill['title'], "sentiment"))
+            st.markdown(ai_analyze_policy(selected_bill['title'], selected_bill['title'], "sentiment"))
     else:
-        st.info("Select a piece of legislation from the first tab to begin analysis.")
-
-with tab3:
-    st.subheader("⚖️ Recent Supreme Court Cases")
-    scotus_data = fetch_scotus_cases()
-    
-    if not scotus_data:
-        st.info("No recent SCOTUS cases found for the current term.")
-    else:
-        for case in scotus_data:
-            case_title = case.get('name', 'Unknown Case')
-            docket = case.get('docket_number', 'N/A')
-            
-            with st.expander(f"Case: {case_title} (Docket: {doc_no})"):
-                # Oyez provides a 'description' which is usually the 'Facts of the Case'
-                facts = case.get('description', 'Facts not yet available.')
-                st.markdown("**Facts of the Case:**")
-                st.write(facts)
-                
-                # Links to Oyez for full details
-                st.link_button("⚖️ View Full Case on Oyez", f"https://www.oyez.org/cases/{current_year}/{docket}")
-                
-                # AI Analysis specifically for the Court Case
-                if st.button(f"Analyze Legal Impact: {docket}", key=f"scotus_{docket}"):
-                    with st.spinner("Analyzing legal precedent..."):
-                        # We use a custom prompt for SCOTUS
-                        scotus_prompt = f"Explain the legal significance of {case_title}. What is the core constitutional question? Text: {facts}"
-                        try:
-                            analysis = model.generate_content(scotus_prompt).text
-                            st.success(analysis)
-                        except Exception as e:
-                            st.error(f"AI Error: {e}")
+        st.info("👈 **Go to the 'Legislation' tab** and select a bill to view the Deep Dive analysis here.")
