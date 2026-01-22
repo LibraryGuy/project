@@ -62,6 +62,20 @@ def fetch_executive_orders():
         st.error(f"Error fetching Executive Orders: {e}")
         return []
 
+@st.cache_data(ttl=3600)
+def fetch_scotus_cases():
+    """Fetches recent Supreme Court cases from the Oyez API."""
+    # Oyez uses year-based terms (e.g., 2025 for the 2025-2026 term)
+    current_year = datetime.now().year if datetime.now().month >= 10 else datetime.now().year - 1
+    url = f"https://api.oyez.org/cases?per_page=10&filter=term:{current_year}"
+    try:
+        resp = requests.get(url)
+        if resp.status_code == 200:
+            return resp.json()
+        return []
+    except:
+        return []
+
 # --- 3. IMPACT & SENTIMENT ANALYSIS LOGIC ---
 
 def ai_analyze_policy(text, title, analysis_type="summary"):
@@ -99,7 +113,7 @@ with st.container():
             st.info(f"**EO Draft:** {eo.get('title')[:50]}...")
             st.caption(f"Published: {eo.get('publication_date')}")
 
-tab1, tab2, tab3 = st.tabs(["📜 Legislation", "🖋️ Executive Actions", "🔬 Intelligence Deep Dive"])
+tab1, tab2, tab3, tab4 = st.tabs(["📜 Legislation", "🖋️ Executive Actions", "⚖️ Supreme Court", "🔬 Intelligence Deep Dive"])
 
 with tab1:
     # SEARCH & FILTER ENGINE
@@ -189,3 +203,34 @@ with tab3:
                 st.markdown(ai_analyze_policy(selected_bill['title'], selected_bill['title'], "sentiment"))
     else:
         st.info("Select a piece of legislation from the first tab to begin analysis.")
+
+with tab3:
+    st.subheader("⚖️ Recent Supreme Court Cases")
+    scotus_data = fetch_scotus_cases()
+    
+    if not scotus_data:
+        st.info("No recent SCOTUS cases found for the current term.")
+    else:
+        for case in scotus_data:
+            case_title = case.get('name', 'Unknown Case')
+            docket = case.get('docket_number', 'N/A')
+            
+            with st.expander(f"Case: {case_title} (Docket: {doc_no})"):
+                # Oyez provides a 'description' which is usually the 'Facts of the Case'
+                facts = case.get('description', 'Facts not yet available.')
+                st.markdown("**Facts of the Case:**")
+                st.write(facts)
+                
+                # Links to Oyez for full details
+                st.link_button("⚖️ View Full Case on Oyez", f"https://www.oyez.org/cases/{current_year}/{docket}")
+                
+                # AI Analysis specifically for the Court Case
+                if st.button(f"Analyze Legal Impact: {docket}", key=f"scotus_{docket}"):
+                    with st.spinner("Analyzing legal precedent..."):
+                        # We use a custom prompt for SCOTUS
+                        scotus_prompt = f"Explain the legal significance of {case_title}. What is the core constitutional question? Text: {facts}"
+                        try:
+                            analysis = model.generate_content(scotus_prompt).text
+                            st.success(analysis)
+                        except Exception as e:
+                            st.error(f"AI Error: {e}")
