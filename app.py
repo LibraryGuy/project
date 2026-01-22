@@ -79,6 +79,22 @@ def ai_analyze(text, title, mode="impact"):
         return model.generate_content(prompts[mode]).text
     except Exception as e: return f"AI Error: {e}"
 
+def ai_judicial_review(eo_title, eo_text):
+    """Specialized AI Review for Executive Orders."""
+    prompt = f"""
+    You are a Constitutional Scholar. Perform a Judicial Review of the following Executive Order:
+    Title: {eo_title}
+    Content: {eo_text}
+    
+    Analyze:
+    1. Statutory Authority: Does the President have the power to do this under existing law?
+    2. Potential Litigation: What are the most likely legal challenges?
+    3. Historical Precedent: Compare this to previous similar orders.
+    """
+    try:
+        return model.generate_content(prompt).text
+    except Exception as e:
+        return f"Judicial Review Error: {e}"
 # --- 4. UI DISPLAY ---
 
 st.title("🏛️ 2026 Intel Policy Tracker")
@@ -115,22 +131,29 @@ with tab1:
         )
 
 with tab2:
-   def ai_judicial_review(eo_title, eo_text):
-    """Specialized AI Review for Executive Orders."""
-    prompt = f"""
-    You are a Constitutional Scholar. Perform a Judicial Review of the following Executive Order:
-    Title: {eo_title}
-    Content: {eo_text}
+    st.subheader("🖋️ Executive Orders Library")
+    eo_list = fetch_executive_orders()
     
-    Analyze:
-    1. Statutory Authority: Does the President have the power to do this under existing law?
-    2. Potential Litigation: What are the most likely legal challenges?
-    3. Historical Precedent: Compare this to previous similar orders.
-    """
-    try:
-        return model.generate_content(prompt).text
-    except Exception as e:
-        return f"Judicial Review Error: {e}"
+    for eo in eo_list:
+        # Use document_number for unique keys
+        doc_id = eo.get('document_number')
+        with st.expander(f"📄 {eo.get('title')}"):
+            st.write(f"**Summary:** {eo.get('abstract')}")
+            
+            # Action Buttons
+            col_link, col_rev = st.columns(2)
+            with col_link:
+                st.link_button("🌐 Read Official Text", eo.get('html_url'), use_container_width=True)
+            
+            with col_rev:
+                if st.button("⚖️ Run Judicial AI Review", key=f"rev_{doc_id}", use_container_width=True):
+                    with st.spinner("Analyzing Presidential Authority..."):
+                        # In 2026, we use the abstract + title for a focused review
+                        # If you need full body text, you would perform a requests.get(eo.get('raw_text_url'))
+                        review = ai_judicial_review(eo.get('title'), eo.get('abstract'))
+                        st.success("**Judicial AI Opinion:**")
+                        st.markdown(review)
+                        
 with tab3:
     st.subheader("⚖️ SCOTUS Docket")
     cases = fetch_scotus_cases()
