@@ -3,6 +3,17 @@ import pandas as pd
 import requests
 import google.generativeai as genai
 from datetime import datetime
+import streamlit.components.v1 as components
+
+# Forces mobile browsers to treat it like an app
+components.html(
+    """
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="apple-touch-icon" href="https://your-icon-url.png">
+    """,
+    height=0
+)
 
 # --- 1. CONFIGURATION ---
 try:
