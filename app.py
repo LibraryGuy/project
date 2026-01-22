@@ -103,23 +103,6 @@ def ai_analyze_policy(text, title, analysis_type="summary"):
 st.title("🏛️ 2026 Intel Policy Tracker")
 st.caption(f"Real-time Legislative Intelligence • {datetime.now().strftime('%B %d, %2026')}")
 
-# Top Row: Automated News Alerts
-with st.container():
-    st.subheader("🔔 Automated Policy Alerts")
-    orders = fetch_eo_news()
-    cols = st.columns(len(orders) if orders else 1)
-    for i, eo in enumerate(orders):
-        with cols[i]:
-            st.info(f"**EO Draft:** {eo.get('title')[:50]}...")
-            st.caption(f"Published: {eo.get('publication_date')}")
-
-tab1, tab2, tab3, tab4 = st.tabs(["📜 Legislation", "🖋️ Executive Actions", "⚖️ Supreme Court", "🔬 Intelligence Deep Dive"])
-
-# --- 4. UI ENHANCEMENTS ---
-
-st.title("🏛️ 2026 Intel Policy Tracker")
-st.caption(f"Real-time Legislative Intelligence • {datetime.now().strftime('%B %d, %2026')}")
-
 # Top Row: Automated News Alerts (Remains at the top)
 with st.container():
     st.subheader("🔔 Automated Policy Alerts")
