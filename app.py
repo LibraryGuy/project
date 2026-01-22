@@ -79,25 +79,40 @@ def fetch_scotus_cases():
 # --- 3. IMPACT & SENTIMENT ANALYSIS LOGIC ---
 
 def ai_analyze_policy(text, title, analysis_type="summary"):
-    """
-    Sentiment & Impact Analysis: 
-    Goes beyond summary to analyze who wins and who loses.
-    """
+    # RE-CONFIGURE with the 2026 Model
+    genai.configure(api_key=st.secrets["GEMINI_API_KEY"].strip())
+    model = genai.GenerativeModel('gemini-2.5-flash')
+
     prompts = {
-        "impact": f"Analyze the economic impact of '{title}'. Who are the winners and losers? (3 bullets each). Text: {text}",
-        "sentiment": f"Analyze the partisan lean of '{title}'. Is it broadly bipartisan or sharply partisan? Explain why. Text: {text}",
-        "semantic": f"Identify the top 3 industries affected by this policy: {title}"
+        "impact": f"Analyze the economic impact of '{title}'. Winners/Losers bullets. Text: {text}",
+        "sentiment": f"Analyze the partisan lean of '{title}'. Text: {text}",
+        "constitution": f"""
+            You are a Constitutional Law Expert. Analyze '{title}' for potential unconstitutionality.
+            1. Identify relevant SCOTUS precedents (e.g., Commerce Clause, Separation of Powers).
+            2. Flag specific sections that may face legal challenges in 2026.
+            3. Rate the 'Challenge Risk' from 1-10.
+            Text: {text}
+        """
     }
-    
-    if not text or "not yet available" in text:
-        return "Deep analysis pending official text release."
     
     try:
         response = model.generate_content(prompts.get(analysis_type, prompts["impact"]))
         return response.text
     except Exception as e:
-        return f"Analysis Error: {e}"
+        return f"⚠️ Analysis Error: {str(e)[:100]}"
 
+# Inside Tab 4, after the Sentiment analysis:
+st.divider()
+st.subheader("⚖️ Constitutional Compliance Check")
+if st.button("⚖️ Run Constitutional Audit", key="const_audit"):
+    with st.spinner("Comparing against Supreme Court precedents..."):
+        # Combine title and abstract for better context
+        legal_context = f"{selected_bill['title']} - {selected_bill['status']}"
+        check_result = ai_analyze_policy(legal_context, selected_bill['title'], "constitution")
+        
+        st.warning("**Legal Intelligence Alert:**")
+        st.markdown(check_result)
+        st.caption("Disclaimer: This is AI-generated analysis and does not constitute legal advice.")
 # --- 4. UI ENHANCEMENTS ---
 
 st.title("🏛️ 2026 Intel Policy Tracker")
