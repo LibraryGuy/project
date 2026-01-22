@@ -115,13 +115,22 @@ with tab1:
         )
 
 with tab2:
-    st.subheader("🖋️ Executive Orders library")
-    eo_list = fetch_executive_orders()
-    for eo in eo_list:
-        with st.expander(f"📄 {eo.get('title')}"):
-            st.write(eo.get('abstract'))
-            st.link_button("View Official Document", eo.get('html_url'))
-
+   def ai_judicial_review(eo_title, eo_text):
+    """Specialized AI Review for Executive Orders."""
+    prompt = f"""
+    You are a Constitutional Scholar. Perform a Judicial Review of the following Executive Order:
+    Title: {eo_title}
+    Content: {eo_text}
+    
+    Analyze:
+    1. Statutory Authority: Does the President have the power to do this under existing law?
+    2. Potential Litigation: What are the most likely legal challenges?
+    3. Historical Precedent: Compare this to previous similar orders.
+    """
+    try:
+        return model.generate_content(prompt).text
+    except Exception as e:
+        return f"Judicial Review Error: {e}"
 with tab3:
     st.subheader("⚖️ SCOTUS Docket")
     cases = fetch_scotus_cases()
