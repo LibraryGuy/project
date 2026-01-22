@@ -48,6 +48,20 @@ def fetch_eo_news():
     resp = requests.get(url)
     return resp.json().get('results', []) if resp.status_code == 200 else []
 
+@st.cache_data(ttl=3600)
+def fetch_executive_orders():
+    """Fetches the latest 10 Executive Orders from the Federal Register."""
+    url = "https://www.federalregister.gov/api/v1/documents.json?conditions[type][]=PRESDOCU&conditions[presidential_document_type][]=executive_order&per_page=10"
+    try:
+        resp = requests.get(url)
+        if resp.status_code == 200:
+            return resp.json().get('results', [])
+        else:
+            return []
+    except Exception as e:
+        st.error(f"Error fetching Executive Orders: {e}")
+        return []
+
 # --- 3. IMPACT & SENTIMENT ANALYSIS LOGIC ---
 
 def ai_analyze_policy(text, title, analysis_type="summary"):
