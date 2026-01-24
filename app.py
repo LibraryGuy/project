@@ -5,17 +5,22 @@ import google.generativeai as genai
 from datetime import datetime
 import streamlit.components.v1 as components
 
-# Forces mobile browsers to treat it like an app
+# --- 1. MOBILE & PWA CONFIGURATION ---
+# Forces mobile browsers to treat it like a native app
 components.html(
     """
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <link rel="apple-touch-icon" href="https://your-icon-url.png">
+    <style>
+        :root { color-scheme: light dark; }
+    </style>
     """,
     height=0
 )
 
-# --- 1. CONFIGURATION ---
+st.set_page_config(page_title="2026 Intel Tracker", layout="wide", page_icon="🏛️")
+
+# --- 2. API CONFIGURATION ---
 try:
     CONGRESS_API_KEY = st.secrets["CONGRESS_API_KEY"].strip()
     GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"].strip()
@@ -23,22 +28,17 @@ except KeyError as e:
     st.error(f"Missing Secret Key: {e}. Check Streamlit Cloud Secrets.")
     st.stop()
 
-# 2026 Model Standard
-MODEL_ID = 'gemini-3-flash-preview' 
+MODEL_ID = 'gemini-2.5-flash' # 2026 Stable Standard
 CONGRESS_SESSION = "119"
 BASE_URL = "https://api.congress.gov/v3"
 
-# Initialize AI
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel(MODEL_ID)
 
-# Persistent State
 if 'bills_df' not in st.session_state:
     st.session_state.bills_df = pd.DataFrame()
 
-st.set_page_config(page_title="2026 Intel Tracker", layout="wide", page_icon="🏛️")
-
-# --- 2. DATA FETCHING (THE TOOLS) ---
+# --- 3. DATA FETCHING (THE TOOLS) ---
 
 @st.cache_data(ttl=600)
 def fetch_congress_data(endpoint):
@@ -58,7 +58,6 @@ def fetch_executive_orders():
 
 @st.cache_data(ttl=3600)
 def fetch_scotus_cases():
-    # Oyez uses year-based terms
     term = datetime.now().year if datetime.now().month >= 10 else datetime.now().year - 1
     url = f"https://api.oyez.org/cases?per_page=10&filter=term:{term}"
     try:
@@ -66,64 +65,75 @@ def fetch_scotus_cases():
         return resp.json() if resp.status_code == 200 else []
     except: return []
 
-# --- 3. INTELLIGENCE LOGIC ---
+# --- 4. INTELLIGENCE LOGIC ---
 
-def ai_analyze(text, title, mode="impact"):
+def draw_risk_meter(score):
+    """Renders a custom CSS progress bar based on a 1-10 score."""
+    if score <= 3: color = "#28a745"   # Green
+    elif score <= 7: color = "#ffc107" # Yellow
+    else: color = "#dc3545"            # Red
+    pct = score * 10
+    st.markdown(f"""
+        <div style="background-color: #e9ecef; border-radius: 10px; width: 100%; height: 15px; margin: 10px 0;">
+            <div style="background-color: {color}; width: {pct}%; height: 15px; border-radius: 10px; transition: width 0.8s ease-in-out;"></div>
+        </div>
+        <p style="text-align: right; font-weight: bold; color: {color}; font-size: 0.9em;">Constitutionality Risk: {score}/10</p>
+    """, unsafe_allow_html=True)
+
+def ai_analyze(title, text, mode="impact"):
+    """Combined Analysis Engine for Legislation and Executive Orders."""
     prompts = {
         "impact": f"Analyze economic impact for '{title}'. Winners/Losers (3 bullets each). Text: {text}",
         "sentiment": f"Analyze partisan lean for '{title}'. Is it bipartisan or polarized? Text: {text}",
-        "constitution": f"You are a SCOTUS expert. Audit '{title}' for constitutional risks (Separation of Powers, Federalism). Rate risk 1-10. Text: {text}"
+        "constitution": f"""You are a Constitutional Scholar. Audit the following for legal risk.
+            Title: {title} | Text: {text}
+            IMPORTANT: Your response MUST start with 'Risk Score: [number]' (1-10). 
+            Then identify statutory authority, potential litigation, and precedents."""
     }
-    if not text or "not yet available" in text: return "Analysis pending official text."
     try:
-        return model.generate_content(prompts[mode]).text
-    except Exception as e: return f"AI Error: {e}"
+        response = model.generate_content(prompts[mode]).text
+        score = 5
+        if mode == "constitution" and "Risk Score:" in response:
+            try:
+                score = int(response.split("Risk Score:")[1].split()[0].replace(',', '').strip())
+            except: score = 5
+        return score, response
+    except Exception as e: return 0, f"AI Error: {e}"
 
-def ai_judicial_review(eo_title, eo_text):
-    """Specialized AI Review for Executive Orders."""
-    prompt = f"""
-    You are a Constitutional Scholar. Perform a Judicial Review of the following Executive Order:
-    Title: {eo_title}
-    Content: {eo_text}
-    
-    Analyze:
-    1. Statutory Authority: Does the President have the power to do this under existing law?
-    2. Potential Litigation: What are the most likely legal challenges?
-    3. Historical Precedent: Compare this to previous similar orders.
-    """
-    try:
-        return model.generate_content(prompt).text
-    except Exception as e:
-        return f"Judicial Review Error: {e}"
-# --- 4. UI DISPLAY ---
+# --- 5. UI DISPLAY ---
 
 st.title("🏛️ 2026 Intel Policy Tracker")
-st.caption(f"Real-time Intelligence Dashboard • {datetime.now().strftime('%B %d, %Y')}")
+st.caption(f"v2.0 Native Mobile Build • {datetime.now().strftime('%B %d, %Y')}")
 
-# Automated News Alerts (Top Ticker)
+# Mobile Styling
+st.markdown("""
+    <style>
+    .stButton>button { width: 100%; border-radius: 8px; height: 3em; }
+    header {visibility: hidden;}
+    </style>
+""", unsafe_allow_html=True)
+
+# Top News Alert Ticker
 with st.expander("🔔 Recent Policy Alerts", expanded=False):
-    orders = fetch_executive_orders()[:3]
-    for eo in orders:
-        st.write(f"**NEW EO:** {eo.get('title')} ({eo.get('publication_date')})")
+    orders_ticker = fetch_executive_orders()[:3]
+    for eo in orders_ticker:
+        st.write(f"**EO:** {eo.get('title')} ({eo.get('publication_date')})")
 
-tab1, tab2, tab3, tab4 = st.tabs(["📜 Legislation", "🖋️ Executive Actions", "⚖️ Supreme Court", "🔬 Intelligence Deep Dive"])
+tab1, tab2, tab3, tab4 = st.tabs(["📜 Legislation", "🖋️ Executive Actions", "⚖️ SCOTUS", "🔬 Deep Dive"])
 
 with tab1:
     col1, col2 = st.columns([2,1])
     with col1:
-        search = st.text_input("🔍 Semantic Search (Keywords or Industry)", placeholder="e.g. 'semiconductors' or 'border'")
+        search = st.text_input("🔍 Search Bills", placeholder="Keywords or Industry...")
     with col2:
-        status_filter = st.multiselect("Status", ["Introduced", "Passed House", "Became Law"])
+        status_f = st.multiselect("Status", ["Introduced", "Passed House", "Became Law"])
 
     raw = fetch_congress_data(f"bill/{CONGRESS_SESSION}")
     if raw:
         df = pd.DataFrame(raw.get('bills', []))
         df['status'] = df['latestAction'].apply(lambda x: x.get('text', 'N/A'))
-        
-        # Filtering Logic
         if search:
             df = df[df['title'].str.contains(search, case=False) | df['number'].str.contains(search, case=False)]
-        
         st.session_state.bills_df = df
         selection = st.dataframe(
             df[['number', 'title', 'status']], 
@@ -133,31 +143,20 @@ with tab1:
 with tab2:
     st.subheader("🖋️ Executive Orders Library")
     eo_list = fetch_executive_orders()
-    
     for eo in eo_list:
-        # Use document_number for unique keys
-        doc_id = eo.get('document_number')
         with st.expander(f"📄 {eo.get('title')}"):
-            st.write(f"**Summary:** {eo.get('abstract')}")
-            
-            # Action Buttons
-            col_link, col_rev = st.columns(2)
-            with col_link:
-                st.link_button("🌐 Read Official Text", eo.get('html_url'), use_container_width=True)
-            
-            with col_rev:
-                if st.button("⚖️ Run Judicial AI Review", key=f"rev_{doc_id}", use_container_width=True):
-                    with st.spinner("Analyzing Presidential Authority..."):
-                        # In 2026, we use the abstract + title for a focused review
-                        # If you need full body text, you would perform a requests.get(eo.get('raw_text_url'))
-                        review = ai_judicial_review(eo.get('title'), eo.get('abstract'))
-                        st.success("**Judicial AI Opinion:**")
-                        st.markdown(review)
-                        
+            st.write(f"**Abstract:** {eo.get('abstract')}")
+            st.link_button("🌐 Read Official Text", eo.get('html_url'))
+            if st.button("⚖️ Run Judicial AI Review", key=f"rev_{eo.get('document_number')}"):
+                with st.spinner("Reviewing Presidential Authority..."):
+                    score, review = ai_analyze(eo.get('title'), eo.get('abstract'), "constitution")
+                    draw_risk_meter(score)
+                    st.markdown(review)
+
 with tab3:
     st.subheader("⚖️ SCOTUS Docket")
-    cases = fetch_scotus_cases()
-    for case in cases:
+    sc_cases = fetch_scotus_cases()
+    for case in sc_cases:
         with st.expander(f"⚖️ {case.get('name')} [{case.get('docket_number')}]"):
             st.write(case.get('description', 'Summary pending.'))
             st.link_button("Oyez Details", f"https://www.oyez.org/cases/{case.get('term')}/{case.get('docket_number')}")
@@ -166,22 +165,25 @@ with tab4:
     if selection and selection.get("selection") and selection["selection"]["rows"]:
         idx = selection["selection"]["rows"][0]
         bill = st.session_state.bills_df.iloc[idx]
-        
         st.header(bill['title'])
-        st.metric("Bill Number", bill['number'], delta=bill['status'])
+        st.metric("Bill", bill['number'], bill['status'])
         
         c1, c2 = st.columns(2)
         with c1:
             st.subheader("💰 Economic Impact")
-            st.info(ai_analyze(bill['title'], bill['title'], "impact"))
+            _, res = ai_analyze(bill['title'], bill['title'], "impact")
+            st.info(res)
         with c2:
             st.subheader("⚖️ Partisan Sentiment")
-            st.info(ai_analyze(bill['title'], bill['title'], "sentiment"))
+            _, res = ai_analyze(bill['title'], bill['title'], "sentiment")
+            st.info(res)
             
         st.divider()
-        st.subheader("⚖️ Constitutional Compliance Check")
-        if st.button("⚖️ Run Constitutional Audit"):
+        st.subheader("⚖️ Constitutional Audit")
+        if st.button("⚖️ Run Legal Risk Analysis"):
             with st.spinner("Analyzing legal precedent..."):
-                st.warning(ai_analyze(bill['title'], bill['title'], "constitution"))
+                score, res = ai_analyze(bill['title'], bill['title'], "constitution")
+                draw_risk_meter(score)
+                st.warning(res)
     else:
-        st.info("👈 Select a bill in the **Legislation** tab to begin the deep dive.")
+        st.info("👈 Select a bill in the **Legislation** tab to begin.")
