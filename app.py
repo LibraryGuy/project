@@ -6,7 +6,6 @@ from datetime import datetime
 import streamlit.components.v1 as components
 
 # --- 1. MOBILE & PWA CONFIGURATION ---
-# Forces mobile browsers to treat it like a native app
 components.html(
     """
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -28,7 +27,8 @@ except KeyError as e:
     st.error(f"Missing Secret Key: {e}. Check Streamlit Cloud Secrets.")
     st.stop()
 
-MODEL_ID = 'gemini-2.5-flash' # 2026 Stable Standard
+# 2026 Intelligence Model
+MODEL_ID = 'gemini-3-flash-preview' 
 CONGRESS_SESSION = "119"
 BASE_URL = "https://api.congress.gov/v3"
 
@@ -38,7 +38,7 @@ model = genai.GenerativeModel(MODEL_ID)
 if 'bills_df' not in st.session_state:
     st.session_state.bills_df = pd.DataFrame()
 
-# --- 3. DATA FETCHING (THE TOOLS) ---
+# --- 3. DATA FETCHING (CACHED) ---
 
 @st.cache_data(ttl=600)
 def fetch_congress_data(endpoint):
@@ -65,10 +65,10 @@ def fetch_scotus_cases():
         return resp.json() if resp.status_code == 200 else []
     except: return []
 
-# --- 4. INTELLIGENCE LOGIC ---
+# --- 4. INTELLIGENCE LOGIC (SMART CACHING) ---
 
 def draw_risk_meter(score):
-    """Renders a custom CSS progress bar based on a 1-10 score."""
+    """Visualizes legal risk on a 1-10 scale."""
     if score <= 3: color = "#28a745"   # Green
     elif score <= 7: color = "#ffc107" # Yellow
     else: color = "#dc3545"            # Red
@@ -80,21 +80,26 @@ def draw_risk_meter(score):
         <p style="text-align: right; font-weight: bold; color: {color}; font-size: 0.9em;">Constitutionality Risk: {score}/10</p>
     """, unsafe_allow_html=True)
 
-def ai_analyze(title, text, mode="impact"):
-    """Combined Analysis Engine for Legislation and Executive Orders."""
+@st.cache_data(show_spinner=False)
+def cached_ai_analyze(item_id, title, text, mode="impact"):
+    """
+    Prevents duplicate API calls. If the app reruns, 
+    it retrieves analysis from local cache.
+    """
     prompts = {
         "impact": f"Analyze economic impact for '{title}'. Winners/Losers (3 bullets each). Text: {text}",
         "sentiment": f"Analyze partisan lean for '{title}'. Is it bipartisan or polarized? Text: {text}",
         "constitution": f"""You are a Constitutional Scholar. Audit the following for legal risk.
             Title: {title} | Text: {text}
             IMPORTANT: Your response MUST start with 'Risk Score: [number]' (1-10). 
-            Then identify statutory authority, potential litigation, and precedents."""
+            Then identify statutory authority and potential litigation."""
     }
     try:
         response = model.generate_content(prompts[mode]).text
         score = 5
         if mode == "constitution" and "Risk Score:" in response:
             try:
+                # Extracts the integer score for the risk meter
                 score = int(response.split("Risk Score:")[1].split()[0].replace(',', '').strip())
             except: score = 5
         return score, response
@@ -103,31 +108,24 @@ def ai_analyze(title, text, mode="impact"):
 # --- 5. UI DISPLAY ---
 
 st.title("🏛️ 2026 Intel Policy Tracker")
-st.caption(f"v2.0 Native Mobile Build • {datetime.now().strftime('%B %d, %Y')}")
+st.caption(f"v3.0 Optimization Build • {datetime.now().strftime('%B %d, %Y')}")
 
-# Mobile Styling
+# Mobile UI Overrides
 st.markdown("""
     <style>
-    .stButton>button { width: 100%; border-radius: 8px; height: 3em; }
+    .stButton>button { width: 100%; border-radius: 8px; height: 3.2em; font-weight: 600; }
     header {visibility: hidden;}
+    [data-testid="stMetricValue"] { font-size: 1.5rem; }
     </style>
 """, unsafe_allow_html=True)
-
-# Top News Alert Ticker
-with st.expander("🔔 Recent Policy Alerts", expanded=False):
-    orders_ticker = fetch_executive_orders()[:3]
-    for eo in orders_ticker:
-        st.write(f"**EO:** {eo.get('title')} ({eo.get('publication_date')})")
 
 tab1, tab2, tab3, tab4 = st.tabs(["📜 Legislation", "🖋️ Executive Actions", "⚖️ SCOTUS", "🔬 Deep Dive"])
 
 with tab1:
     col1, col2 = st.columns([2,1])
     with col1:
-        search = st.text_input("🔍 Search Bills", placeholder="Keywords or Industry...")
-    with col2:
-        status_f = st.multiselect("Status", ["Introduced", "Passed House", "Became Law"])
-
+        search = st.text_input("🔍 Search Bills", placeholder="Search keywords...")
+    
     raw = fetch_congress_data(f"bill/{CONGRESS_SESSION}")
     if raw:
         df = pd.DataFrame(raw.get('bills', []))
@@ -144,12 +142,14 @@ with tab2:
     st.subheader("🖋️ Executive Orders Library")
     eo_list = fetch_executive_orders()
     for eo in eo_list:
+        doc_id = eo.get('document_number')
         with st.expander(f"📄 {eo.get('title')}"):
             st.write(f"**Abstract:** {eo.get('abstract')}")
             st.link_button("🌐 Read Official Text", eo.get('html_url'))
-            if st.button("⚖️ Run Judicial AI Review", key=f"rev_{eo.get('document_number')}"):
-                with st.spinner("Reviewing Presidential Authority..."):
-                    score, review = ai_analyze(eo.get('title'), eo.get('abstract'), "constitution")
+            if st.button("⚖️ Run Judicial AI Review", key=f"rev_{doc_id}"):
+                with st.spinner("Analyzing Presidential Authority..."):
+                    # Using cached AI function to prevent redundant calls
+                    score, review = cached_ai_analyze(doc_id, eo.get('title'), eo.get('abstract'), "constitution")
                     draw_risk_meter(score)
                     st.markdown(review)
 
@@ -165,25 +165,29 @@ with tab4:
     if selection and selection.get("selection") and selection["selection"]["rows"]:
         idx = selection["selection"]["rows"][0]
         bill = st.session_state.bills_df.iloc[idx]
-        st.header(bill['title'])
-        st.metric("Bill", bill['number'], bill['status'])
+        bill_id = bill['number']
         
+        st.header(bill['title'])
+        st.metric("Status", bill['number'], bill['status'])
+        
+        # Load Economic and Partisan results immediately (Cached)
         c1, c2 = st.columns(2)
         with c1:
             st.subheader("💰 Economic Impact")
-            _, res = ai_analyze(bill['title'], bill['title'], "impact")
-            st.info(res)
+            _, impact_res = cached_ai_analyze(bill_id, bill['title'], bill['title'], "impact")
+            st.info(impact_res)
         with c2:
             st.subheader("⚖️ Partisan Sentiment")
-            _, res = ai_analyze(bill['title'], bill['title'], "sentiment")
-            st.info(res)
+            _, sentiment_res = cached_ai_analyze(bill_id, bill['title'], bill['title'], "sentiment")
+            st.info(sentiment_res)
             
         st.divider()
         st.subheader("⚖️ Constitutional Audit")
         if st.button("⚖️ Run Legal Risk Analysis"):
             with st.spinner("Analyzing legal precedent..."):
-                score, res = ai_analyze(bill['title'], bill['title'], "constitution")
+                # Clicking this now won't trigger the c1/c2 sections to call Gemini again
+                score, const_res = cached_ai_analyze(bill_id, bill['title'], bill['title'], "constitution")
                 draw_risk_meter(score)
-                st.warning(res)
+                st.warning(const_res)
     else:
-        st.info("👈 Select a bill in the **Legislation** tab to begin.")
+        st.info("👈 Select a bill in the **Legislation** tab to begin analysis.")
